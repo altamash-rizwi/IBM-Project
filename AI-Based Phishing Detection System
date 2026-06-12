@@ -1,0 +1,774 @@
+from flask import Flask, request, render_template_string
+import pandas as pd
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.pipeline import Pipeline
+from sklearn.ensemble import RandomForestClassifier
+import whois
+from urllib.parse import urlparse
+from datetime import datetime
+
+app = Flask(__name__)
+
+# ======================================
+# Training Dataset
+# ======================================
+
+data = pd.DataFrame({
+    "url": [
+        # SAFE URLS
+        "https://google.com",
+        "https://github.com",
+        "https://amazon.com",
+        "https://facebook.com",
+        "https://openai.com",
+        "https://microsoft.com",
+        "https://youtube.com",
+        "https://linkedin.com",
+        "https://apple.com",
+        "https://stackoverflow.com",
+        "https://wikipedia.org",
+        "https://netflix.com",
+        "https://paypal.com",
+        "https://instagram.com",
+        "https://twitter.com",
+        # PHISHING URLS
+        "http://paypal-login-security-alert.xyz",
+        "http://verify-bank-account.fake.ru",
+        "http://free-money-now.click",
+        "http://claim-prize-fast.fake.com",
+        "http://bank-verification-alert.tk",
+        "http://secure-login-update.gq",
+        "http://amazon-security-check.ml",
+        "http://netflix-account-warning.cf",
+        "http://facebook-password-reset.ga",
+        "http://bitcoin-free-bonus.xyz",
+        "http://urgent-bank-update.ru",
+        "http://login-paypal-alert.tk",
+        "http://verify-credit-card-info.ml",
+        "http://claim-reward-now.click",
+        "http://account-security-warning.xyz"
+    ],
+    "label": [
+        0,0,0,0,0,
+        0,0,0,0,0,
+        0,0,0,0,0,
+        1,1,1,1,1,
+        1,1,1,1,1,
+        1,1,1,1,1
+    ]
+})
+
+# ======================================
+# Train AI Model
+# ======================================
+
+X = data["url"]
+y = data["label"]
+
+model = Pipeline([
+    ("tfidf", TfidfVectorizer()),
+    ("classifier", RandomForestClassifier(n_estimators=100, random_state=42))
+])
+model.fit(X, y)
+
+# ======================================
+# Feature Extraction
+# ======================================
+
+def extract_features(url):
+    features = {}
+    features["URL Length"]       = len(url)
+    features["HTTPS"]            = "Yes" if "https" in url else "No"
+    features["Dot Count"]        = url.count(".")
+    features["Hyphen Count"]     = url.count("-")
+    suspicious_words = ["login","verify","secure","bank","update","free","bonus","password"]
+    features["Suspicious Words"] = sum(word in url.lower() for word in suspicious_words)
+    return features
+
+# ======================================
+# Domain Age Checker
+# ======================================
+
+def get_domain_age(url):
+    try:
+        domain = urlparse(url).netloc
+        info = whois.whois(domain)
+        creation_date = info.creation_date
+        if isinstance(creation_date, list):
+            creation_date = creation_date[0]
+        age = (datetime.now() - creation_date).days
+        return f"{age:,} days"
+    except:
+        return "Unknown"
+
+# ======================================
+# HTML PAGE — Enhanced UI
+# ======================================
+
+HTML = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PhishGuard AI — Phishing Detection System</title>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+
+  <!-- Chart.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+
+  <style>
+    /* ── Reset & Base ─────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg-deep:    #0A0F1E;
+      --bg-card:    #0D1829;
+      --bg-inset:   #060B14;
+      --border:     #1A2E4A;
+      --border-mid: #243D5C;
+      --text-primary: #E8EDF5;
+      --text-muted:   #6B7C9A;
+      --text-dim:     #3D5070;
+      --cyan:   #00D4FF;
+      --green:  #2ED573;
+      --red:    #FF4757;
+      --amber:  #FFA502;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg-deep);
+      color: var(--text-primary);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 48px 16px 64px;
+    }
+
+    /* ── Header ───────────────────────────────────── */
+    .page-header { text-align: center; margin-bottom: 40px; }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      color: var(--cyan);
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      padding: 6px 16px;
+      border-radius: 20px;
+      margin-bottom: 20px;
+    }
+    .status-dot {
+      width: 7px; height: 7px;
+      background: var(--cyan);
+      border-radius: 50%;
+      animation: pulse-dot 2s infinite;
+    }
+    @keyframes pulse-dot {
+      0%,100% { opacity: 1; transform: scale(1); }
+      50%      { opacity: .4; transform: scale(.7); }
+    }
+
+    h1 {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: clamp(28px, 5vw, 42px);
+      font-weight: 700;
+      color: var(--text-primary);
+      letter-spacing: -.03em;
+      line-height: 1.15;
+    }
+    h1 em { font-style: normal; color: var(--cyan); }
+    .subtitle {
+      font-size: 15px;
+      color: var(--text-muted);
+      margin-top: 10px;
+    }
+
+    /* ── Card Shell ───────────────────────────────── */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 28px;
+      width: 100%;
+      max-width: 700px;
+    }
+
+    /* ── URL Input ────────────────────────────────── */
+    .input-section { margin-bottom: 4px; }
+    .input-label {
+      font-size: 12px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      font-weight: 500;
+      margin-bottom: 10px;
+    }
+    .input-row { display: flex; gap: 10px; }
+
+    .url-input {
+      flex: 1;
+      background: var(--bg-inset);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 13px 16px;
+      color: var(--text-primary);
+      font-size: 14px;
+      font-family: 'Inter', sans-serif;
+      outline: none;
+      transition: border-color .2s;
+    }
+    .url-input::placeholder { color: var(--text-dim); }
+    .url-input:focus { border-color: var(--cyan); }
+
+    .scan-btn {
+      background: var(--cyan);
+      color: var(--bg-deep);
+      border: none;
+      border-radius: 12px;
+      padding: 13px 24px;
+      font-weight: 700;
+      font-size: 14px;
+      font-family: 'Space Grotesk', sans-serif;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      white-space: nowrap;
+      transition: background .2s, transform .1s;
+    }
+    .scan-btn:hover  { background: #33DDFF; }
+    .scan-btn:active { transform: scale(.98); }
+
+    /* Scan icon inside button */
+    .scan-btn svg { width: 15px; height: 15px; }
+
+    /* ── Divider ──────────────────────────────────── */
+    .divider {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 24px 0;
+    }
+
+    /* ── Results Section ──────────────────────────── */
+    .results-section { display: none; }
+
+    /* Verdict Banner */
+    .verdict-banner {
+      border-radius: 14px;
+      padding: 20px 24px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+    .verdict-safe  { background: #091A10; border: 1px solid #1C4730; }
+    .verdict-phish { background: #1A0909; border: 1px solid #4A1C1C; }
+
+    .verdict-icon {
+      width: 52px; height: 52px;
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .verdict-icon-safe  { background: #112A1C; }
+    .verdict-icon-phish { background: #2A1111; }
+    .verdict-icon svg { width: 26px; height: 26px; }
+
+    .verdict-text-label {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 20px;
+      font-weight: 700;
+    }
+    .verdict-safe  .verdict-text-label { color: var(--green); }
+    .verdict-phish .verdict-text-label { color: var(--red);   }
+    .verdict-sub { font-size: 13px; color: var(--text-muted); margin-top: 3px; }
+
+    .verdict-tag {
+      margin-left: auto;
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .1em;
+      padding: 5px 14px;
+      border-radius: 20px;
+    }
+    .tag-safe  { background: #112A1C; color: var(--green); border: 1px solid #1C4730; }
+    .tag-phish { background: #2A1111; color: var(--red);   border: 1px solid #4A1C1C; }
+
+    /* ── Metrics Row ──────────────────────────────── */
+    .metrics-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .metric-card {
+      background: var(--bg-inset);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 16px 18px;
+    }
+    .metric-label {
+      font-size: 11px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      font-weight: 500;
+      margin-bottom: 10px;
+    }
+    .metric-value {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 24px;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+    .metric-sub {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    /* Confidence bar */
+    .conf-bar-track {
+      width: 100%;
+      height: 5px;
+      background: var(--border);
+      border-radius: 3px;
+      margin-top: 10px;
+      overflow: hidden;
+    }
+    .conf-bar-fill {
+      height: 100%;
+      border-radius: 3px;
+      transition: width 1s cubic-bezier(.4,0,.2,1);
+      width: 0%;
+    }
+
+    /* Gauge chart */
+    .gauge-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    #gaugeWrap {
+      position: relative;
+      width: 130px;
+      height: 72px;
+    }
+    #gaugeWrap canvas { max-width: 100%; }
+    .gauge-label {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 11px;
+      font-weight: 600;
+      margin-top: 4px;
+    }
+
+    /* Domain age card */
+    .domain-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    /* ── Features Grid ────────────────────────────── */
+    .features-section { margin-bottom: 0; }
+    .section-heading {
+      font-size: 11px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      font-weight: 500;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .section-heading::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+      gap: 10px;
+    }
+    .feat-item {
+      background: var(--bg-inset);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px 14px;
+    }
+    .feat-name {
+      font-size: 11px;
+      color: var(--text-dim);
+      margin-bottom: 6px;
+    }
+    .feat-value {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+    .feat-value.warning { color: var(--red); }
+    .feat-value.ok      { color: var(--green); }
+
+    /* ── Radar Scan Animation ─────────────────────── */
+    .scan-overlay {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+      padding: 32px 0;
+    }
+    .radar-container {
+      position: relative;
+      width: 90px;
+      height: 90px;
+    }
+    .radar-ring {
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      border: 1.5px solid var(--cyan);
+      opacity: 0;
+      animation: radar-pulse 1.8s ease-out infinite;
+    }
+    .radar-ring:nth-child(2) { animation-delay: .5s; }
+    .radar-ring:nth-child(3) { animation-delay: 1s; }
+    @keyframes radar-pulse {
+      0%   { transform: scale(.15); opacity: .9; }
+      100% { transform: scale(1.7);  opacity: 0; }
+    }
+    .radar-core {
+      position: absolute;
+      inset: 30px;
+      border-radius: 50%;
+      background: var(--cyan);
+    }
+    .scan-status {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 14px;
+      color: var(--text-muted);
+      letter-spacing: .04em;
+    }
+    .scan-dots::after {
+      content: '';
+      animation: dots 1.4s steps(4, end) infinite;
+    }
+    @keyframes dots {
+      0%  { content: ''; }
+      25% { content: '.'; }
+      50% { content: '..'; }
+      75% { content: '...'; }
+    }
+
+    /* ── Footer ───────────────────────────────────── */
+    .footer-note {
+      margin-top: 20px;
+      font-size: 12px;
+      color: var(--text-dim);
+      text-align: center;
+    }
+
+    /* ── Responsive ───────────────────────────────── */
+    @media (max-width: 520px) {
+      .metrics-row { grid-template-columns: 1fr 1fr; }
+      .verdict-tag { display: none; }
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- ═══ Page Header ═══════════════════════════════ -->
+  <header class="page-header">
+    <div class="status-badge">
+      <span class="status-dot"></span>
+      PhishGuard AI — Active
+    </div>
+    <h1>Detect <em>Phishing</em> Instantly</h1>
+    <p class="subtitle">AI-powered URL threat intelligence — powered by Random Forest + TF-IDF</p>
+  </header>
+
+  <!-- ═══ Main Card ══════════════════════════════════ -->
+  <main class="card" role="main">
+
+    <!-- URL Input -->
+    <section class="input-section">
+      <p class="input-label">Enter URL to Analyze</p>
+      <form method="POST" id="scanForm">
+        <div class="input-row">
+          <input
+            class="url-input"
+            type="text"
+            name="url"
+            id="urlField"
+            placeholder="https://example.com"
+            value="{{ url_value or '' }}"
+            autocomplete="off"
+            required
+          >
+          <button type="submit" class="scan-btn">
+            <!-- Search icon -->
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            Scan URL
+          </button>
+        </div>
+      </form>
+    </section>
+
+    <!-- ── Radar Scan Animation (JS-controlled) ───── -->
+    <div class="scan-overlay" id="scanOverlay">
+      <div class="radar-container">
+        <div class="radar-ring"></div>
+        <div class="radar-ring"></div>
+        <div class="radar-ring"></div>
+        <div class="radar-core"></div>
+      </div>
+      <p class="scan-status">Scanning URL<span class="scan-dots"></span></p>
+    </div>
+
+    <!-- ── Results (rendered server-side) ─────────── -->
+    {% if prediction %}
+    <hr class="divider">
+    <section class="results-section" id="resultsSection" style="display:block">
+
+      <!-- Verdict Banner -->
+      <div class="verdict-banner {{ 'verdict-phish' if is_phishing else 'verdict-safe' }}">
+        <div class="verdict-icon {{ 'verdict-icon-phish' if is_phishing else 'verdict-icon-safe' }}">
+          {% if is_phishing %}
+          <!-- Warning triangle -->
+          <svg viewBox="0 0 24 24" fill="none" stroke="#FF4757"
+               stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+            <line x1="12" y1="9"  x2="12"    y2="13"/>
+            <line x1="12" y1="17" x2="12.01" y2="17"/>
+          </svg>
+          {% else %}
+          <!-- Shield check -->
+          <svg viewBox="0 0 24 24" fill="none" stroke="#2ED573"
+               stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2L3 7v5c0 5.25 3.75 10.15 9 11.35C17.25 22.15 21 17.25 21 12V7L12 2z"/>
+            <polyline points="9 12 11 14 15 10"/>
+          </svg>
+          {% endif %}
+        </div>
+        <div>
+          <div class="verdict-text-label">{{ prediction }}</div>
+          <div class="verdict-sub">
+            {% if is_phishing %}
+              High-risk URL — do not enter personal information on this site.
+            {% else %}
+              No threats detected — this URL appears legitimate.
+            {% endif %}
+          </div>
+        </div>
+        <span class="verdict-tag {{ 'tag-phish' if is_phishing else 'tag-safe' }}">
+          {{ 'THREAT' if is_phishing else 'SAFE' }}
+        </span>
+      </div>
+
+      <!-- Metrics Row -->
+      <div class="metrics-row">
+
+        <!-- Confidence -->
+        <div class="metric-card">
+          <div class="metric-label">Confidence</div>
+          <div class="metric-value" id="confValue">0%</div>
+          <div class="conf-bar-track">
+            <div class="conf-bar-fill" id="confBar"
+                 style="background: {{ '#FF4757' if is_phishing else '#2ED573' }};">
+            </div>
+          </div>
+        </div>
+
+        <!-- Threat Gauge -->
+        <div class="metric-card gauge-card">
+          <div class="metric-label">Threat Score</div>
+          <div id="gaugeWrap">
+            <canvas id="gaugeChart"
+                    role="img"
+                    aria-label="Threat level gauge showing {{ 'high' if is_phishing else 'low' }} risk">
+              Threat level: {{ 'high' if is_phishing else 'low' }}
+            </canvas>
+          </div>
+          <div class="gauge-label" style="color: {{ '#FF4757' if is_phishing else '#2ED573' }};">
+            {{ 'HIGH RISK' if is_phishing else 'LOW RISK' }}
+          </div>
+        </div>
+
+        <!-- Domain Age -->
+        <div class="metric-card">
+          <div class="metric-label">Domain Age</div>
+          <div class="metric-value" style="font-size:18px;">{{ domain_age }}</div>
+          <div class="metric-sub">
+            {% if domain_age == "Unknown" %}
+              Could not determine — treat with caution
+            {% else %}
+              Registration history available
+            {% endif %}
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Features Grid -->
+      <div class="features-section">
+        <p class="section-heading">Extracted Features</p>
+        <div class="features-grid">
+          {% for key, value in features.items() %}
+          <div class="feat-item">
+            <div class="feat-name">{{ key }}</div>
+            <div class="feat-value
+              {% if key == 'HTTPS'          and value == 'No'  %} warning
+              {% elif key == 'HTTPS'        and value == 'Yes' %} ok
+              {% elif key == 'Suspicious Words' and value|int > 0 %} warning
+              {% elif key == 'Suspicious Words' %} ok
+              {% elif key == 'Hyphen Count' and value|int >= 2 %} warning
+              {% endif %}">{{ value }}</div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+
+    </section>
+    {% endif %}
+  </main>
+
+  <p class="footer-note">
+    PhishGuard AI — B.Tech Semester IV Project ·
+    Random Forest + TF-IDF ·
+    Results are indicative; always verify URLs manually.
+  </p>
+
+  <!-- ═══ Scripts ════════════════════════════════════ -->
+  <script>
+    const IS_PHISHING  = {{ 'true' if is_phishing else 'false' }};
+    const CONFIDENCE   = {{ confidence or 0 }};
+    const THREAT_SCORE = IS_PHISHING ? Math.round(CONFIDENCE) : (100 - Math.round(CONFIDENCE));
+
+    // ── Confidence counter & bar ──────────────────────
+    window.addEventListener('load', () => {
+      if (!document.getElementById('resultsSection')) return;
+
+      // Animate counter
+      const confEl  = document.getElementById('confValue');
+      const confBar = document.getElementById('confBar');
+      let current   = 0;
+      const target  = CONFIDENCE;
+      const step    = target / 40;
+      const timer   = setInterval(() => {
+        current = Math.min(current + step, target);
+        confEl.textContent = Math.round(current) + '%';
+        if (current >= target) clearInterval(timer);
+      }, 25);
+
+      // Animate bar (CSS transition handles the ease)
+      requestAnimationFrame(() => {
+        setTimeout(() => { confBar.style.width = CONFIDENCE + '%'; }, 80);
+      });
+
+      // ── Threat Gauge (Chart.js doughnut) ───────────
+      const gaugeCanvas = document.getElementById('gaugeChart');
+      if (gaugeCanvas && window.Chart) {
+        const color     = IS_PHISHING ? '#FF4757' : '#2ED573';
+        const remaining = 100 - THREAT_SCORE;
+        new Chart(gaugeCanvas, {
+          type: 'doughnut',
+          data: {
+            datasets: [{
+              data: [THREAT_SCORE, remaining],
+              backgroundColor: [color, '#1A2E4A'],
+              borderWidth: 0,
+              circumference: 180,
+              rotation: -90
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            cutout: '72%',
+            plugins: {
+              legend:  { display: false },
+              tooltip: { enabled: false }
+            }
+          }
+        });
+      }
+    });
+
+    // ── Show radar animation on submit ───────────────
+    document.getElementById('scanForm').addEventListener('submit', () => {
+      const overlay = document.getElementById('scanOverlay');
+      if (overlay) overlay.style.display = 'flex';
+    });
+  </script>
+
+</body>
+</html>
+"""
+
+# ======================================
+# Main Route
+# ======================================
+
+@app.route("/", methods=["GET", "POST"])
+def home():
+    prediction  = None
+    confidence  = None
+    domain_age  = None
+    features    = None
+    is_phishing = False
+    url_value   = ""
+
+    if request.method == "POST":
+        url = request.form["url"].strip()
+        url_value = url
+
+        result      = model.predict([url])[0]
+        probability = model.predict_proba([url])[0]
+        confidence  = round(max(probability) * 100, 2)
+        domain_age  = get_domain_age(url)
+        features    = extract_features(url)
+        is_phishing = bool(result == 1)
+
+        prediction = "Phishing Website Detected" if is_phishing else "Legitimate Website"
+
+    return render_template_string(
+        HTML,
+        prediction  = prediction,
+        confidence  = confidence,
+        domain_age  = domain_age,
+        features    = features,
+        is_phishing = is_phishing,
+        url_value   = url_value,
+    )
+
+# ======================================
+# Run Flask App
+# ======================================
+
+if __name__ == "__main__":
+    app.run(debug=True)
